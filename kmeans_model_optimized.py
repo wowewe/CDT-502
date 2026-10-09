@@ -126,13 +126,13 @@ def train_kmeans_optimized(data_dir="dataset",
         output_path = os.path.join(output_dir, filename)
         shutil.copy2(path, output_path)
     
-    # 清理内存
-    del features, features_scaled, features_pca, cluster_labels
-    gc.collect()
-    
     print("\n完成!")
     print(f"聚类簇数: {n_clusters}")
     print(f"聚类分布: {dict(zip(*np.unique(cluster_labels, return_counts=True)))}")
+    
+    # 清理内存
+    del features, features_scaled, features_pca, cluster_labels
+    gc.collect()
 
 
 if __name__ == "__main__":
