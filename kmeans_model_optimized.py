@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 import shutil
 import gc
+import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import IncrementalPCA
 from sklearn.preprocessing import StandardScaler
@@ -106,7 +107,8 @@ def train_kmeans_optimized(data_dir="dataset",
     print(f"正在训练 K-Means (n_clusters={n_clusters})...")
     kmeans = MiniBatchKMeans(
         n_clusters=n_clusters,
-        batch_size=256,  # 增大批次，加快训练
+        # 增大批次，加快训练
+        batch_size=256,
         max_iter=100,
         tol=1e-4,
         random_state=42,
@@ -114,7 +116,13 @@ def train_kmeans_optimized(data_dir="dataset",
     )
     cluster_labels = kmeans.fit_predict(features_pca)
     
-    # 保存结果
+    # 保存中间结果（用于analysis.ipynb）
+    print("正在保存中间结果...")
+    np.save('pca_images.npy', features_pca)
+    pd.DataFrame({'label': class_names}).to_csv('labels.csv', index=False)
+    np.save('cluster_labels.npy', cluster_labels)
+    
+    # 保存分类结果
     print("正在保存分类结果...")
     os.makedirs(save_folder, exist_ok=True)
     
@@ -130,8 +138,8 @@ def train_kmeans_optimized(data_dir="dataset",
     print(f"聚类簇数: {n_clusters}")
     print(f"聚类分布: {dict(zip(*np.unique(cluster_labels, return_counts=True)))}")
     
-    # 清理内存
-    del features, features_scaled, features_pca, cluster_labels
+    # 清理内存（保留中间文件）
+    del features, features_scaled
     gc.collect()
 
 
