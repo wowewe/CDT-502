@@ -54,7 +54,7 @@ def load_image_gray(image_path, size=(64, 64)):
         return None
     
     image = cv2.resize(image, size)
-    return image.flatten()
+    return image.astype('float32').flatten() / 255.0
 
 
 def load_dataset(data_dir, load_images=False):
@@ -82,13 +82,48 @@ def load_dataset(data_dir, load_images=False):
                     if load_images:
                         img = load_image_gray(image_path)
                         if img is not None:
-                            features.append({'pixels': img.tolist()})
+                            features.append(img)
+                            labels.append(class_name)
                     else:
                         features.append(extract_features(image_path))
+                        labels.append(class_name)
                     
-                    labels.append(class_name)
-    
+    if load_images:
+        features = np.vstack(features) if features else np.empty((0, 0))
+
     return features, labels
+
+
+def encode_features(features, vectorizer=None, fit=False):
+    """
+    将特征转为数值矩阵。
+
+    像素特征已经是数组，直接使用。
+    字典特征交给 DictVectorizer。DictVectorizer 只接受标量或字符串列表，
+    不能接收整数像素列表。
+    """
+    if isinstance(features, np.ndarray):
+        return features, None
+
+    if features and not isinstance(features[0], dict):
+        return np.vstack(features), None
+
+    if fit or vectorizer is None:
+        vectorizer = DictVectorizer(sparse=False)
+        return vectorizer.fit_transform(features), vectorizer
+
+    return vectorizer.transform(features), vectorizer
+
+
+def fit_pca(features_encoded, n_components=30):
+    """按样本数和特征数截断主成分数量，避免 n_components 过大。"""
+    max_components = min(features_encoded.shape[0], features_encoded.shape[1])
+    n_components = min(n_components, max_components)
+    if n_components < 1:
+        return features_encoded, None
+
+    pca = PCA(n_components=n_components)
+    return pca.fit_transform(features_encoded), pca
 
 
 def apply_pca(features, n_components=30):
@@ -96,20 +131,14 @@ def apply_pca(features, n_components=30):
     使用 PCA 进行降维
     
     参数:
-        features: 特征列表
+        features: 特征列表或像素矩阵
         n_components: 主成分数量
     
     返回:
         降维后的特征数组
     """
-    # 将特征字典转换为向量
-    vectorizer = DictVectorizer(sparse=False)
-    features_encoded = vectorizer.fit_transform(features)
-    
-    # 应用 PCA
-    pca = PCA(n_components=n_components)
-    features_pca = pca.fit_transform(features_encoded)
-    
+    features_encoded, _ = encode_features(features, fit=True)
+    features_pca, _ = fit_pca(features_encoded, n_components)
     return features_pca
 
 
@@ -133,34 +162,31 @@ def train_svm(features, labels,
     label_encoder = LabelEncoder()
     labels_encoded = label_encoder.fit_transform(labels)
     
-    # 转换为向量
-    vectorizer = DictVectorizer(sparse=False)
-    features_encoded = vectorizer.fit_transform(features)
-    
-    # 降维（可选）
+    features_encoded, vectorizer = encode_features(features, fit=True)
+
+    pca = None
     if apply_pca_reduction:
-        pca = PCA(n_components=30)
-        features_encoded = pca.fit_transform(features_encoded)
+        features_encoded, pca = fit_pca(features_encoded)
     
     # 训练 SVM
     svm_classifier = svm.SVC(kernel=kernel, C=C)
     svm_classifier.fit(features_encoded, labels_encoded)
     
-    return svm_classifier, label_encoder, vectorizer
+    return svm_classifier, label_encoder, vectorizer, pca
 
 
 def evaluate_svm(svm_model, features, labels, 
-                 label_encoder, vectorizer, apply_pca_reduction=True):
+                 label_encoder, vectorizer, pca=None):
     """
     评估 SVM 模型
     
     参数:
         svm_model: 训练好的 SVM 模型
-        features: 特征列表
+        features: 特征列表或像素矩阵
         labels: 标签列表
         label_encoder: 标签编码器
-        vectorizer: 特征向量器
-        apply_pca_reduction: 是否应用 PCA 降维
+        vectorizer: 特征向量器，像素特征时为 None
+        pca: 训练阶段拟合的 PCA，未降维时为 None
     
     返回:
         评估指标字典
@@ -168,13 +194,10 @@ def evaluate_svm(svm_model, features, labels,
     # 编码标签
     labels_encoded = label_encoder.transform(labels)
     
-    # 转换为向量
-    features_encoded = vectorizer.transform(features)
+    features_encoded, _ = encode_features(features, vectorizer=vectorizer, fit=False)
     
-    # 降维（可选）
-    if apply_pca_reduction:
-        pca = PCA(n_components=30)
-        features_encoded = pca.fit_transform(features_encoded)
+    if pca is not None:
+        features_encoded = pca.transform(features_encoded)
     
     # 预测
     predictions = svm_model.predict(features_encoded)
@@ -216,14 +239,10 @@ def cross_validate_svm(features, labels,
     label_encoder = LabelEncoder()
     labels_encoded = label_encoder.fit_transform(labels)
     
-    # 转换为向量
-    vectorizer = DictVectorizer(sparse=False)
-    features_encoded = vectorizer.fit_transform(features)
-    
-    # 降维（可选）
+    features_encoded, _ = encode_features(features, fit=True)
+
     if apply_pca_reduction:
-        pca = PCA(n_components=30)
-        features_encoded = pca.fit_transform(features_encoded)
+        features_encoded, _ = fit_pca(features_encoded)
     
     # 交叉验证
     scores = cross_val_score(svm.SVC(kernel=kernel, C=C), 
@@ -244,7 +263,7 @@ if __name__ == "__main__":
     print(f"Loaded {len(train_features)} training samples")
     
     # 训练模型
-    svm_model, label_encoder, vectorizer = train_svm(
+    svm_model, label_encoder, vectorizer, pca = train_svm(
         train_features, train_labels, 
         kernel='linear', C=1.0
     )
@@ -252,7 +271,7 @@ if __name__ == "__main__":
     # 评估模型
     metrics = evaluate_svm(
         svm_model, train_features, train_labels,
-        label_encoder, vectorizer
+        label_encoder, vectorizer, pca
     )
     
     print("\nSVM 模型评估结果:")

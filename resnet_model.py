@@ -5,7 +5,6 @@
 import os
 
 import torch
-import torchvision
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, models
@@ -69,7 +68,7 @@ def get_dataloaders(data_folder, batch_size=32):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
     # 创建数据集
     dataset = CracksDataset([data_folder], transform=transform)
